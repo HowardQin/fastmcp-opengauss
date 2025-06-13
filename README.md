@@ -51,7 +51,7 @@ Claude Desktop only supports Stdio mode, so we add the Stdio starting command in
 
 
 ## Usage with CherryStudio
-CherryStudio supports all three transporting mode: Stdio, SSE and Streamable-Http
+CherryStudio supports all three transporting modes: Stdio, SSE and Streamable-Http
 ### Stdio:
 ![CherryStudio with stdio fastmcp-opengauss](./assets/chst-stdio.png)
 Arguments:
