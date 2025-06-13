@@ -68,7 +68,7 @@ For SSE transport mode, we need to start a standalone mcp server, run following 
 ```shell
 uv --directory C:\Users\qinh\fastmcp-opengauss run .\server.py --transport=sse --port=8000 --path=/sse --host=0.0.0.0
 ```
-Then configure CherryStudio to connect sse mcp server:
+Then configure CherryStudio to connect to sse mcp server:
 ![CherryStudio with sse fastmcp-opengauss](./assets/chst-sse.png)
 
 
@@ -77,5 +77,6 @@ For Streamable-Http, we need to start a standalone mcp server, run following com
 ```shell
 uv --directory C:\Users\qinh\fastmcp-opengauss run .\server.py --transport=streamable-http --port=8000 --path=/mcp --host=0.0.0.0
 ```
+Then configure CherryStudio to connect to streamable-http mcp server:
 ![CherryStudio with sse fastmcp-opengauss](./assets/chst-streamable-http.png)
 
