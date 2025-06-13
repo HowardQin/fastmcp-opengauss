@@ -8,7 +8,7 @@ async def interact_with_server():
     # client = Client("my_server.py")
 
     # Option 2: Connect to a server run via `fastmcp run ... --transport sse --port 8080`
-    client = Client("http://mcp.opengauss.io:18080/sse") # Use the correct URL/port
+    client = Client("http://localhost:8000/sse") # Use the correct URL/port
 
     try:
         async with client:
@@ -33,9 +33,6 @@ async def interact_with_server():
 
             result = await client.read_resource("opengauss://schemas")
             print(f"\nopengauss://schemas:\n{result[0].text}")
-
-            result = await client.read_resource("opengauss://table_definitions")
-            print(f"\nopengauss://table_definitions:\n{result[0].text}")
 
     except Exception as e:
         print(f"An error occurred: {e}")

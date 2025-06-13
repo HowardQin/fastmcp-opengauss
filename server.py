@@ -7,13 +7,16 @@ from dotenv import load_dotenv
 import psycopg2
 from psycopg2 import Error, sql, connect
 
-load_dotenv()
-
-default_log_level = os.environ.get("LOG_LEVEL", "DEGUG").upper()
-log_level = getattr(logging, default_log_level, logging.INFO)
-logging.basicConfig(level=log_level)
+#log config for this file
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("[OPENGAUSE_MCP]")
 
+# load environment variable from .env
+load_dotenv()
+
+# get openGauss connection parameters from env,
+# everytime a resource or tool function called, 
+# this will be used to open a connection.
 def get_db_config():
     """Get database configuration from environment variables."""
     config = {
@@ -25,15 +28,17 @@ def get_db_config():
     }
     if not all([config["user"], config["password"], config["dbname"]]):
         raise ValueError("Missing required database configuration")
-
     return config
 
-mcp = FastMCP(name="opengauss-mcp-server",
-                           instructions="""
-                                                 This server provides tools to execute SQL to opengauss database.
-                                                 """
-                          )
+# create a FastMCP 2.0 object
+mcp = FastMCP(name="opengauss-fastmcp-server",
+              instructions="""
+              This server provides tools to 
+              execute SQL to opengauss database.
+              """)
 
+# called by client, 
+# return schema "public" and "$user" if availiable
 @mcp.resource(
         uri="opengauss://schemas",
         name="ListSchemas",
@@ -48,69 +53,52 @@ async def get_schemas() -> str:
     try:
         with connect(**config) as conn:
             with conn.cursor() as cursor:
-               cursor.execute("SELECT nspname AS schema_name FROM pg_namespace where nspname in ('public', '{}');".format(config["user"]))
-               schemas = cursor.fetchall()
+                cursor.execute("""
+                               SELECT nspname AS schema_name 
+                               FROM pg_namespace 
+                               WHERE nspname in ('public', '{}');
+                               """
+                              .format(config["user"]))
+                schemas = cursor.fetchall()
         result = ["Schemas in database {}:".format(config["dbname"])]  # Header
         result.extend([sch[0] for sch in schemas])
         return ", ".join(result)
-
     except Error as e:
         raise RuntimeError(f"Database error: {str(e)}")
 
+# called by client, 
+# return all table names of current schema
 @mcp.resource(
         uri="opengauss://tables",
         name="ListTables",
-        description="Get all table names under current schema in qualified table names of the form <schema_name>.<table_name>.",
+        description="""
+             Get all table names in current schema,
+             in qualified table names,
+             of the form <schema_name>.<table_name>.
+             """,
         mime_type="text/plain"
 )
 async def get_tables() -> str:
     """
-    Get qualified table names of public and user's schema in the form of: <schema_name>.<table_name>.
+    Get qualified table names in current schema of the form <schema_name>.<table_name>.
     """
     config = get_db_config()
     try:
         with connect(**config) as conn:
             with conn.cursor() as cursor:
-               cursor.execute("SELECT schemaname, tablename FROM pg_tables WHERE schemaname in ('public', '{}');".format(config["user"]))
+               cursor.execute("""SELECT schemaname, tablename 
+                                 FROM pg_tables 
+                                 WHERE schemaname=current_schema();
+                              """)
                tables = cursor.fetchall()
         result = ["Tables in database {}:".format(config["dbname"])]  # Header
         result.extend([f"{tab[0]}.{tab[1]}" for tab in tables])
         return ", ".join(result)
-
     except Error as e:
         raise RuntimeError(f"Database error: {str(e)}")
 
-@mcp.resource(
-        uri="opengauss://table_definitions",
-        name="TableDefinitions",
-        description="Get definitions of all tables in current schema.",
-        mime_type="text/plain"
-)
-async def get_table_definitions() -> str:
-    """
-    Get definitions of all tables in current schema.
-    """
-    config = get_db_config()
-    try:
-        with connect(**config) as conn:
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT tablename FROM pg_tables WHERE schemaname = current_schema();")
-                tables = cursor.fetchall()
-                all_defs=[]
-                for tup in tables:
-                    cursor.execute("""SELECT column_name, data_type, column_default, is_nullable, ordinal_position
-                                                 FROM information_schema.columns
-                                                 WHERE table_name = '{}' and table_schema=current_schema();""".format(tup[0]));
-                    coldefs = cursor.fetchall()
-                    result = [f"Definition of table {tup[0]}:"]
-                    result.extend(["column_name, data_type, column_default, is_nullable, ordinal_position"])  # Header
-                    result.extend([f"{col[0]},{col[1]},{col[2]},{col[3]},{col[4]}" for col in coldefs])
-                    all_defs.append("\n".join(result))
-                return "\n".join(all_defs)
-
-    except Error as e:
-        raise RuntimeError(f"Database error: {str(e)}")
-
+# call by LLM,
+# return result of any SQL command
 @mcp.tool()
 async def execute_query(query: str) -> str:
     """Execute an SQL commands on the openGauss server.
@@ -138,6 +126,8 @@ async def execute_query(query: str) -> str:
         logger.error(f"Error executing SQL '{query}': {e}")
         return f"Error executing query: {str(e)}"
 
+# call by LLM,
+# return all table names in current schema
 @mcp.tool()
 async def list_tables_in_current_schema() -> str:
     """
@@ -152,10 +142,11 @@ async def list_tables_in_current_schema() -> str:
         result = ["Tables in current schema:"]  # Header
         result.extend([tab[0] for tab in tables])
         return "\n".join(result)
-
     except Error as e:
         raise RuntimeError(f"Database error: {str(e)}")
 
+# call by LLM,
+# return definition of specified table
 @mcp.tool()
 async def get_table_definition(table: str, sch: str) -> str:
     """
@@ -165,18 +156,28 @@ async def get_table_definition(table: str, sch: str) -> str:
     try:
         with connect(**config) as conn:
             with conn.cursor() as cursor:
-                cursor.execute("""SELECT column_name, data_type, column_default, is_nullable, ordinal_position
-                                             FROM information_schema.columns
-                                             WHERE table_name = '{}' and table_schema='{}';""".format(table, sch));
+                cursor.execute("""
+                                  SELECT column_name, 
+                                         data_type, 
+                                         column_default, 
+                                         is_nullable, 
+                                         ordinal_position
+                                  FROM information_schema.columns
+                                  WHERE table_name = '{}' and 
+                                        table_schema='{}';
+                               """
+                               .format(table, sch));
                 coldefs = cursor.fetchall()
                 result = [f"Definition of table {table}:"]
-                result.extend(["column_name, data_type, column_default, is_nullable, ordinal_position"])  # Header
+                # Header
+                result.extend(["column_name,data_type,column_default,is_nullable,ordinal_position"])
                 result.extend([f"{col[0]},{col[1]},{col[2]},{col[3]},{col[4]}" for col in coldefs])
                 return "\n".join(result)
-
     except Error as e:
         raise RuntimeError(f"Database error: {str(e)}")
 
+# call by LLM,
+# return return current user and schema
 @mcp.tool()
 async def get_current_user_and_schema() -> str:
     """
@@ -186,15 +187,17 @@ async def get_current_user_and_schema() -> str:
     try:
         with connect(**config) as conn:
             with conn.cursor() as cursor:
-                cursor.execute("select current_user, current_schema;;");
+                cursor.execute("select current_user, current_schema;");
                 rowdata = cursor.fetchone()
                 return "current user is {}, current schema is {}".format(rowdata[0], rowdata[1])
-
     except Error as e:
         raise RuntimeError(f"Database error: {str(e)}")
 
 def main():
+    # command line parameters passed to mcp server on starting it.
     parser = argparse.ArgumentParser(description="openGauss MCP server")
+    # mcp server can talk to client in one of three protocol:
+    # stdio, sse, streamable-http
     parser.add_argument(
         "--transport",
         type=str,
@@ -202,33 +205,35 @@ def main():
         default="stdio",
         help="Transport method (stdio, sse or streamable-http)",
     )
+    # for sse or streamable-http, mcp server needs a listening port
     parser.add_argument(
         "--port",
         type=int,
         default=8000,
-        help="Port",
+        help="Port this mcp server listening to",
     )
     parser.add_argument(
         "--path",
         type=str,
-        default="/mcp",
-        help="Path",
+        default="/sse",
+        help="/sse for --transport=sse, /mcp for --transport=streamable-http",
     )
     parser.add_argument(
         "--host",
         type=str,
         default="0.0.0.0",
-        help="Path",
+        help="Hosts this mcp server listening to",
     )
     parser.add_argument(
         "--log_level",
         type=str,
         choices=["debug", "info", "warning", "error", "critical"],
         default="debug",
-        help="Path",
+        help="Log level of mcp server internal code",
     )
     args = parser.parse_args()
 
+    # make the mcp server run
     if args.transport == "stdio":
         mcp.run(transport="stdio")
     else:
